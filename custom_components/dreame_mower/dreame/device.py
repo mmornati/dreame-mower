@@ -15,6 +15,7 @@ from typing import Any, Optional
 from .types import (
     PIID,
     DIID,
+    property_from_siid_piid,
     ACTION_AVAILABILITY,
     PROPERTY_AVAILABILITY,
     DreameMowerProperty,
@@ -323,29 +324,33 @@ class DreameMowerDevice:
                 params = []
                 map_params = []
                 for param in message["params"]:
-                    properties = [prop for prop in DreameMowerProperty]
-                    for prop in properties:
-                        if prop in self.property_mapping:
-                            mapping = self.property_mapping[prop]
-                            _LOGGER.debug("Mapping: %s", mapping)
-                            if (
-                                "aiid" not in mapping
-                                and param["siid"] == mapping["siid"]
-                                and param["piid"] == mapping["piid"]
-                            ):
-                                if prop in self._default_properties:
-                                    param["did"] = str(prop.value)
-                                    param["code"] = 0
-                                    params.append(param)
-                                else:
-                                    if (
-                                        prop is DreameMowerProperty.OBJECT_NAME
-                                        or prop is DreameMowerProperty.MAP_DATA
-                                        or prop is DreameMowerProperty.ROBOT_TIME
-                                        or prop is DreameMowerProperty.OLD_MAP_DATA
-                                    ):
-                                        map_params.append(param)
-                                break
+                    # O(1) reverse lookup; replaces the O(N) linear scan
+                    # that previously rebuilt [prop for prop in DreameMowerProperty]
+                    # for every param of every properties_changed message.
+                    prop = property_from_siid_piid(param["siid"], param["piid"])
+                    if prop is None:
+                        _LOGGER.debug(
+                            "Unknown siid/piid in properties_changed: %s/%s",
+                            param["siid"],
+                            param["piid"],
+                        )
+                        continue
+                    if prop in self.property_mapping:
+                        mapping = self.property_mapping[prop]
+                        _LOGGER.debug("Mapping: %s", mapping)
+                        if "aiid" not in mapping:
+                            if prop in self._default_properties:
+                                param["did"] = str(prop.value)
+                                param["code"] = 0
+                                params.append(param)
+                            else:
+                                if (
+                                    prop is DreameMowerProperty.OBJECT_NAME
+                                    or prop is DreameMowerProperty.MAP_DATA
+                                    or prop is DreameMowerProperty.ROBOT_TIME
+                                    or prop is DreameMowerProperty.OLD_MAP_DATA
+                                ):
+                                    map_params.append(param)
                 if len(map_params) and self._map_manager:
                     self._map_manager.handle_properties(map_params)
 

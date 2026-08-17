@@ -1054,6 +1054,31 @@ def DIID(property: DreameMowerProperty, mapping=DreameMowerPropertyMapping) -> s
         return f"{mapping[property][siid]}.{mapping[property][piid]}"
 
 
+SIID_PIID_TO_PROPERTY: Final[dict[tuple[int, int], DreameMowerProperty]] = {
+    (m[siid], m[piid]): prop
+    for prop, m in DreameMowerPropertyMapping.items()
+    if siid in m and piid in m
+}
+
+
+def property_from_siid_piid(
+    siid_value: int,
+    piid_value: int,
+    mapping: dict[tuple[int, int], DreameMowerProperty] = SIID_PIID_TO_PROPERTY,
+) -> DreameMowerProperty | None:
+    """Reverse lookup for an incoming ``properties_changed`` parameter.
+
+    Given a device-emitted ``(siid, piid)`` tuple, return the matching
+    ``DreameMowerProperty`` or ``None`` if no mapping exists.
+
+    This replaces the O(N) per-param linear scan that previously ran for
+    every property in every ``properties_changed`` MQTT message (see
+    ``DreameMowerDevice._message_callback``). Built once at import time
+    from ``DreameMowerPropertyMapping`` so it is O(1) at lookup time.
+    """
+    return mapping.get((siid_value, piid_value))
+
+
 class RobotType(IntEnum):
     LIDAR = 0
     VSLAM = 1
