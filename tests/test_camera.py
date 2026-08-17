@@ -190,3 +190,94 @@ class TestCameraEntityDescription:
                 )
                 return
         raise AssertionError("CAMERAS tuple not found at module level")
+
+
+class TestWebRTCAttributesSeeded:
+    """Tests for the `_webrtc_provider` / `_supports_native_async_webrtc`
+    defensive initialisation.
+
+    Modern Home Assistant's Camera base class declares these attributes in
+    its __init__. With our MRO
+    `DreameMowerCameraEntity(DreameMowerEntity, Camera)` the cooperative
+    super() chain skips Camera.__init__() because DreameMowerEntity's
+    `super().__init__(coordinator=coordinator)` uses a kwarg signature
+    that Camera.__init__() (which takes no args) cannot accept.
+
+    Without these attributes HA's `async_refresh_providers()` raises
+    AttributeError on the first read, the entity fails to register, and
+    HA surfaces it as "unavailable" in the UI.
+    """
+
+    def test_webrtc_provider_seeded_in_init(self, camera_ast):
+        """__init__ must explicitly assign self._webrtc_provider = None."""
+        klass = _find_class(camera_ast, "DreameMowerCameraEntity")
+        init = _find_method(klass, "__init__")
+        src = ast.unparse(init)
+        assert "self._webrtc_provider = None" in src, (
+            "__init__ must assign self._webrtc_provider = None - "
+            "Camera.__init__() is skipped by the cooperative super() "
+            "chain so the attribute must be set explicitly to prevent "
+            "AttributeError in HA's async_refresh_providers()."
+        )
+
+    def test_supports_native_async_webrtc_seeded_in_init(self, camera_ast):
+        """__init__ must compute _supports_native_async_webrtc the same way
+        Camera.__init__() does."""
+        klass = _find_class(camera_ast, "DreameMowerCameraEntity")
+        init = _find_method(klass, "__init__")
+        src = ast.unparse(init)
+        assert "_supports_native_async_webrtc" in src, (
+            "__init__ must compute self._supports_native_async_webrtc - "
+            "this attribute is read by Camera.async_refresh_providers() "
+            "and must exist on every Camera subclass instance."
+        )
+        assert (
+            "type(self).async_handle_async_webrtc_offer" in src
+        ), "_supports_native_async_webrtc must mirror Camera.__init__()"
+
+
+class TestStateInitialization:
+    """Tests for the `_state = datetime.now()` initialisation.
+
+    Even when the placeholder image is valid, HA shows "unavailable" if
+    `self._state` is the string `STATE_UNAVAILABLE`. The `state`
+    property at line 876 returns this value directly to HA.
+    """
+
+    def test_initial_state_is_not_state_unavailable(self, camera_ast):
+        """__init__ must not initialise self._state to STATE_UNAVAILABLE."""
+        klass = _find_class(camera_ast, "DreameMowerCameraEntity")
+        init = _find_method(klass, "__init__")
+        src = ast.unparse(init)
+        # Should be datetime.now(), not STATE_UNAVAILABLE
+        assert "self._state = datetime.now()" in src, (
+            "__init__ must initialise self._state to datetime.now() so "
+            "the camera entity shows a valid timestamp in HA instead of "
+            "the bogus 'unavailable' string while waiting for the "
+            "device's first map."
+        )
+        # Specifically: must NOT use STATE_UNAVAILABLE
+        assert "self._state = STATE_UNAVAILABLE" not in src, (
+            "__init__ must NOT set self._state = STATE_UNAVAILABLE - "
+            "this is what causes the persistent 'unavailable' state "
+            "even when the placeholder image is valid."
+        )
+
+    def test_handle_coordinator_update_no_longer_sets_unavailable(self, camera_ast):
+        """_handle_coordinator_update's else branch must not set STATE_UNAVAILABLE."""
+        klass = _find_class(camera_ast, "DreameMowerCameraEntity")
+        method = _find_method(klass, "_handle_coordinator_update")
+        src = ast.unparse(method)
+        # The else branch should fall back to datetime.now(), not STATE_UNAVAILABLE
+        for node in ast.walk(method):
+            if isinstance(node, ast.ExceptHandler):
+                continue
+        # Simpler check: STATE_UNAVAILABLE shouldn't appear in the else branch
+        # at all (we left it only in update()'s "device lost map" branch).
+        # Confirm by counting - should appear at most 0 times in this method.
+        count = src.count("STATE_UNAVAILABLE")
+        assert count == 0, (
+            f"_handle_coordinator_update must not reference STATE_UNAVAILABLE "
+            f"(found {count} occurrence(s)) - a freshly-installed, never-mapped "
+            f"mower would otherwise show the camera as 'unavailable' indefinitely."
+        )

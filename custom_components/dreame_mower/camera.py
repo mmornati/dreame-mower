@@ -449,6 +449,25 @@ class DreameMowerCameraEntity(DreameMowerEntity, Camera):
         self.access_tokens = collections.deque([], 2)
         self.async_update_token()
         self._rtsp_to_webrtc = False
+        # Modern Home Assistant's Camera base class declares
+        # `self._webrtc_provider: CameraWebRTCProvider | None = None` and
+        # `self._supports_native_async_webrtc` in its __init__
+        # (camera/__init__.py). With our MRO
+        # `DreameMowerCameraEntity(DreameMowerEntity, Camera)` the
+        # cooperative super() chain skips Camera.__init__() because
+        # DreameMowerEntity.__init__() calls
+        # `super().__init__(coordinator=coordinator)` with kwargs that
+        # Camera.__init__() (which takes no args) cannot accept.
+        # Without these attributes HA's `async_refresh_providers()`
+        # raises AttributeError on the first read, the entity fails to
+        # register, and HA surfaces it as "unavailable" in the UI.
+        # Setting them explicitly here is a defensive one-liner that
+        # makes the integration work on every HA version >= 2024.x.
+        self._webrtc_provider = None
+        self._supports_native_async_webrtc = (
+            type(self).async_handle_async_webrtc_offer
+            != Camera.async_handle_async_webrtc_offer
+        )
         self._should_poll = True
         self._last_updated = -1
         self._frame_id = -1
@@ -481,7 +500,7 @@ class DreameMowerCameraEntity(DreameMowerEntity, Camera):
                     square,
                     False,
                 )
-self._image = None
+        self._image = None
         self._default_map = True
         self._proxy_images = {}
         self.map_index = map_index
