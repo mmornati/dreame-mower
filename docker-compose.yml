@@ -1,0 +1,30 @@
+---
+services:
+  home-assistant:
+    container_name: home-assistant-dreame-mower-test
+    image: homeassistant/home-assistant:latest
+    volumes:
+      - ./test_config/configuration.yaml:/config/configuration.yaml
+      - ./test_config/automations.yaml:/config/automations.yaml
+      - ./test_config/scripts.yaml:/config/scripts.yaml
+      - ./test_config/scenes.yaml:/config/scenes.yaml
+      - ./custom_components/dreame_mower:/config/custom_components/dreame_mower
+      - ha_config:/config/.storage
+    ports:
+      - "8123:8123"
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/Amsterdam
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - -f
+        - http://localhost:8123
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+volumes:
+  ha_config:

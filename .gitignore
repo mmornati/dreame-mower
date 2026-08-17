@@ -130,3 +130,16 @@ dmypy.json
 
 # Other
 .DS_Store
+
+# Local test/development artifacts (NEVER commit credentials)
+test_config/.storage/
+test_config/*.db
+test_config/*.db-*
+test_config/*.log
+test_config/*.log.*
+test_config/secrets.yaml
+test_config/.cloud/
+test_config/deps/
+
+# Docker volume state for integration test environment
+.ha_docker_data/

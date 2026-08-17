@@ -1,0 +1,28 @@
+---
+# Home Assistant Test Configuration for Dreame Mower Integration
+# This is a minimal configuration for testing the custom component
+
+default_config:
+
+# Uncomment to enable debug logging for the integration
+logger:
+  default: info
+  logs:
+    custom_components.dreame_mower: debug
+
+http:
+  use_x_forwarded_for: true
+  trusted_proxies:
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+
+recorder:
+  db_url: sqlite:////config/.storage/home-assistant_v2.db
+  purge_keep_days: 3
+
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml
+
+# The Dreame Mower integration will be configured through the UI
+# Go to: Settings -> Devices & Services -> Add Integration -> Dreame Mower
