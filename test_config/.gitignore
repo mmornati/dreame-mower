@@ -1,0 +1,13 @@
+# Test configuration for Dreame Mower integration
+# Do NOT commit real credentials to this file.
+
+# Everything under test_config/ except this file should be ignored -
+# configuration.yaml etc. live in the repo, but the storage dir,
+# database, logs, and any secrets files (which Docker creates at
+# runtime) must not be committed.
+*
+!.gitignore
+!configuration.yaml
+!automations.yaml
+!scripts.yaml
+!scenes.yaml
