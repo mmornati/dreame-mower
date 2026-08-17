@@ -449,6 +449,25 @@ class DreameMowerCameraEntity(DreameMowerEntity, Camera):
         self.access_tokens = collections.deque([], 2)
         self.async_update_token()
         self._rtsp_to_webrtc = False
+        # Modern Home Assistant's Camera base class declares
+        # `self._webrtc_provider: CameraWebRTCProvider | None = None` and
+        # `self._supports_native_async_webrtc` in its __init__
+        # (camera/__init__.py). With our MRO
+        # `DreameMowerCameraEntity(DreameMowerEntity, Camera)` the
+        # cooperative super() chain skips Camera.__init__() because
+        # DreameMowerEntity.__init__() calls
+        # `super().__init__(coordinator=coordinator)` with kwargs that
+        # Camera.__init__() (which takes no args) cannot accept.
+        # Without these attributes HA's `async_refresh_providers()`
+        # raises AttributeError on the first read, the entity fails to
+        # register, and HA surfaces it as "unavailable" in the UI.
+        # Setting them explicitly here is a defensive one-liner that
+        # makes the integration work on every HA version >= 2024.x.
+        self._webrtc_provider = None
+        self._supports_native_async_webrtc = (
+            type(self).async_handle_async_webrtc_offer
+            != Camera.async_handle_async_webrtc_offer
+        )
         self._should_poll = True
         self._last_updated = -1
         self._frame_id = -1
@@ -485,9 +504,21 @@ class DreameMowerCameraEntity(DreameMowerEntity, Camera):
         self._default_map = True
         self._proxy_images = {}
         self.map_index = map_index
-        self._state = STATE_UNAVAILABLE
-        if self.map_index == 0 and not self.map_data_json:
-            self._image = self._renderer.default_map_image
+        # Initialise _state to the current timestamp (not STATE_UNAVAILABLE)
+        # so that HA shows the placeholder image's "last updated" timestamp
+        # instead of "unavailable" while waiting for the device's first
+        # map. Without this, the `state` property at line 858 returns
+        # STATE_UNAVAILABLE and HA surfaces the entity as "unavailable"
+        # even though `async_camera_image()` returns a valid PNG.
+        self._state = datetime.now()
+        # Always seed a default image so the entity is never "unavailable"
+        # at startup. Previously this was gated on `map_index == 0 and not
+        # self.map_data_json`, which left `camera.*_map_data` (map_data_json=True)
+        # and every saved-map camera (map_index>0) with `self._image=None`
+        # until the first successful `_update_image` completed - meaning
+        # HA showed them as "unavailable" indefinitely for devices that had
+        # not yet completed a mapping run.
+        self._image = self._renderer.default_map_image
 
         map_data = self._map_data
         self._map_id = map_data.map_id if map_data else None
@@ -557,8 +588,19 @@ class DreameMowerCameraEntity(DreameMowerEntity, Camera):
             self._device_active = self.device.status.active
             self._error = self.device.status.error
         else:
+            # The device either has no map yet, isn't cloud-connected,
+            # or hasn't completed a mapping run (`located` is False). In
+            # all three cases we still want HA to render the entity as
+            # available (we have a placeholder image seeded at init time)
+            # rather than as "unavailable" - so fall back to a timestamp
+            # for the placeholder rather than STATE_UNAVAILABLE.
+            #
+            # Previously this branch hard-set STATE_UNAVAILABLE, which
+            # meant a freshly-installed, never-mapped mower always showed
+            # the camera entity as "unavailable" even though the
+            # placeholder image was valid.
             self.update()
-            self._state = STATE_UNAVAILABLE
+            self._state = datetime.now()
         self.async_write_ha_state()
 
     async def async_camera_image(self, width: int | None = None, height: int | None = None) -> bytes | None:
@@ -780,7 +822,11 @@ class DreameMowerCameraEntity(DreameMowerEntity, Camera):
                 self._calibration_points = self._renderer.calibration_points
                 self.coordinator.set_updated_data()
         except Exception:
-            LOGGER.warn("Map render Failed: %s", traceback.format_exc())
+            LOGGER.warning("Map render Failed: %s", traceback.format_exc())
+            # Fall back to the default placeholder image so a transient
+            # render error doesn't leave the camera entity with a blank
+            # image. The next successful render will overwrite this.
+            self._image = self._renderer.default_map_image
 
     def _get_proxy_image(self, index, map_data, info_text, cache_key, max_item=2):
         item_key = f"i{index}_t{int(info_text)}_d{int(map_data.last_updated)}"

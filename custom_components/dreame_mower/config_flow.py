@@ -55,6 +55,8 @@ model_map = {
     "dreame.mower.p2255": "A1",
     "dreame.mower.g2422": "A1 Pro",
     "dreame.mower.g2408": "A2",
+    "dreame.mower.g2568d": "A2",
+    "dreame.mower.g2540d": "A1 Pro",
     "dreame.mower.g3255": "unknown",
 }
 
@@ -428,49 +430,57 @@ class DreameMowerFlowHandler(ConfigFlow, domain=DOMAIN):
                     prefer_cloud=self.prefer_cloud,
                     account_type="dreame",
                 )
-                await self.hass.async_add_executor_job(self.protocol.cloud.login)
-
-                if self.protocol.cloud.logged_in is False:
-                    errors["base"] = "login_error"
-                elif self.protocol.cloud.logged_in:
-                    persistent_notification.dismiss(
-                        self.hass, f"{DOMAIN}_{NOTIFICATION_ID_2FA_LOGIN}"
-                    )
-
-                    devices = await self.hass.async_add_executor_job(
-                        self.protocol.cloud.get_devices
-                    )
-                    if devices:
-                        found = list(
-                            filter(
-                                lambda d: any(
-                                    str(d["model"]).startswith(prefix)
-                                    for prefix in DREAME_MODELS
-                                ),
-                                devices["page"]["records"],
-                            )
+                try:
+                    await self.hass.async_add_executor_job(self.protocol.cloud.login)
+                    if self.protocol.cloud.logged_in is False:
+                        errors["base"] = "login_error"
+                    elif self.protocol.cloud.logged_in:
+                        persistent_notification.dismiss(
+                            self.hass, f"{DOMAIN}_{NOTIFICATION_ID_2FA_LOGIN}"
                         )
 
-                        self.devices = {}
-                        for device in found:
-                            name = (
-                                device["customName"]
-                                if device["customName"]
-                                and len(device["customName"]) > 0
-                                else device["deviceInfo"]["displayName"]
+                        devices = await self.hass.async_add_executor_job(
+                            self.protocol.cloud.get_devices
+                        )
+                        if devices:
+                            found = list(
+                                filter(
+                                    lambda d: any(
+                                        str(d["model"]).startswith(prefix)
+                                        for prefix in DREAME_MODELS
+                                    ),
+                                    devices["page"]["records"],
+                                )
                             )
-                            model = model_map[device["model"]]
-                            modelId = device["model"]
-                            list_name = f"{name} - {model} ({modelId})"
-                            self.devices[list_name] = device
 
-                        if self.devices:
-                            if len(self.devices) == 1:
-                                self.extract_info(list(self.devices.values())[0])
-                                return await self.async_step_connect()
-                            return await self.async_step_devices()
+                            self.devices = {}
+                            for device in found:
+                                name = (
+                                    device["customName"]
+                                    if device["customName"]
+                                    and len(device["customName"]) > 0
+                                    else device["deviceInfo"]["displayName"]
+                                )
+                                model = model_map.get(device["model"], device["model"])
+                                modelId = device["model"]
+                                list_name = f"{name} - {model} ({modelId})"
+                                self.devices[list_name] = device
 
-                    errors["base"] = "no_devices"
+                            if self.devices:
+                                if len(self.devices) == 1:
+                                    self.extract_info(list(self.devices.values())[0])
+                                    return await self.async_step_connect()
+                                return await self.async_step_devices()
+
+                        errors["base"] = "no_devices"
+                except Exception:  # pylint: disable=broad-except
+                    # Mirror async_step_connect's pattern: any unhandled
+                    # exception during cloud login / device list parsing
+                    # is reported as "cannot_connect" rather than letting
+                    # HA surface it as the unhelpful "unknown error".
+                    # asyncio.CancelledError subclasses BaseException in
+                    # modern Python and is therefore not caught here.
+                    errors["base"] = "cannot_connect"
             else:
                 errors["base"] = "credentials_incomplete"
 
