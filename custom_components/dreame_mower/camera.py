@@ -481,14 +481,20 @@ class DreameMowerCameraEntity(DreameMowerEntity, Camera):
                     square,
                     False,
                 )
-        self._image = None
+self._image = None
         self._default_map = True
         self._proxy_images = {}
         self.map_index = map_index
-        self._state = STATE_UNAVAILABLE
+        # Initialise _state to the current timestamp (not STATE_UNAVAILABLE)
+        # so that HA shows the placeholder image's "last updated" timestamp
+        # instead of "unavailable" while waiting for the device's first
+        # map. Without this, the `state` property at line 858 returns
+        # STATE_UNAVAILABLE and HA surfaces the entity as "unavailable"
+        # even though `async_camera_image()` returns a valid PNG.
+        self._state = datetime.now()
         # Always seed a default image so the entity is never "unavailable"
         # at startup. Previously this was gated on `map_index == 0 and not
-        # map_data_json`, which left `camera.*_map_data` (map_data_json=True)
+        # self.map_data_json`, which left `camera.*_map_data` (map_data_json=True)
         # and every saved-map camera (map_index>0) with `self._image=None`
         # until the first successful `_update_image` completed - meaning
         # HA showed them as "unavailable" indefinitely for devices that had
@@ -563,8 +569,19 @@ class DreameMowerCameraEntity(DreameMowerEntity, Camera):
             self._device_active = self.device.status.active
             self._error = self.device.status.error
         else:
+            # The device either has no map yet, isn't cloud-connected,
+            # or hasn't completed a mapping run (`located` is False). In
+            # all three cases we still want HA to render the entity as
+            # available (we have a placeholder image seeded at init time)
+            # rather than as "unavailable" - so fall back to a timestamp
+            # for the placeholder rather than STATE_UNAVAILABLE.
+            #
+            # Previously this branch hard-set STATE_UNAVAILABLE, which
+            # meant a freshly-installed, never-mapped mower always showed
+            # the camera entity as "unavailable" even though the
+            # placeholder image was valid.
             self.update()
-            self._state = STATE_UNAVAILABLE
+            self._state = datetime.now()
         self.async_write_ha_state()
 
     async def async_camera_image(self, width: int | None = None, height: int | None = None) -> bytes | None:
