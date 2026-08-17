@@ -2498,6 +2498,12 @@ class MapData:
         return attributes_list
 
     def check_point(self, x, y, absolute=False) -> bool:
+        # Guard against being called on a MapData that has not yet been
+        # populated with dimensions / pixel_type (e.g. partial / wifi /
+        # restored maps). Without these guards the attribute accesses
+        # below raise AttributeError or TypeError.
+        if self.dimensions is None or self.pixel_type is None:
+            return False
         if not absolute:
             x = int((x - self.dimensions.left) / self.dimensions.grid_size)
             y = int((y - self.dimensions.top) / self.dimensions.grid_size)

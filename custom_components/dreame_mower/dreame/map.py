@@ -3310,6 +3310,19 @@ class DreameMowerMapDecoder:
         # P map only returns difference between its previous frame.
         # Calculate new map size and update the buffer according to the received data at received offset.
         if map_data.data:
+            # Guard against the very first P-frame arriving before any prior
+            # I-frame data has populated current_map_data.data / pixel_type
+            # (e.g. when a wifi map is replaced by a P-frame update). Without
+            # this guard, the unguarded accesses below raise
+            # `TypeError: 'NoneType' object is not subscriptable` and the
+            # P-frame is silently dropped.
+            if (
+                current_map_data.dimensions is None
+                or current_map_data.data is None
+                or current_map_data.pixel_type is None
+            ):
+                return None
+
             current_dimensions = current_map_data.dimensions
             new_dimensions = map_data.dimensions
 
@@ -4520,7 +4533,13 @@ class DreameMowerMapRenderer:
         robot_status: int = 0,
         station_status: int = 0,
     ) -> str:
-        if not map_data or map_data.empty_map or (map_data.dimensions.width * map_data.dimensions.height) < 2:
+        if (
+            not map_data
+            or map_data.empty_map
+            or map_data.dimensions is None
+            or map_data.pixel_type is None
+            or (map_data.dimensions.width * map_data.dimensions.height) < 2
+        ):
             return (
                 json.dumps(
                     {"resources": resources},
@@ -4982,7 +5001,12 @@ class DreameMowerMapRenderer:
         station_status: int = 0,
         info_text: bool = False,
     ) -> bytes:
-        if map_data is None or map_data.empty_map or (map_data.dimensions.width * map_data.dimensions.height) < 2:
+        if (
+            map_data is None
+            or map_data.empty_map
+            or map_data.dimensions is None
+            or (map_data.dimensions.width * map_data.dimensions.height) < 2
+        ):
             return self.default_map_image
 
         self.render_complete = False
