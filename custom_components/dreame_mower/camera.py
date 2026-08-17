@@ -486,8 +486,14 @@ class DreameMowerCameraEntity(DreameMowerEntity, Camera):
         self._proxy_images = {}
         self.map_index = map_index
         self._state = STATE_UNAVAILABLE
-        if self.map_index == 0 and not self.map_data_json:
-            self._image = self._renderer.default_map_image
+        # Always seed a default image so the entity is never "unavailable"
+        # at startup. Previously this was gated on `map_index == 0 and not
+        # map_data_json`, which left `camera.*_map_data` (map_data_json=True)
+        # and every saved-map camera (map_index>0) with `self._image=None`
+        # until the first successful `_update_image` completed - meaning
+        # HA showed them as "unavailable" indefinitely for devices that had
+        # not yet completed a mapping run.
+        self._image = self._renderer.default_map_image
 
         map_data = self._map_data
         self._map_id = map_data.map_id if map_data else None
@@ -780,7 +786,11 @@ class DreameMowerCameraEntity(DreameMowerEntity, Camera):
                 self._calibration_points = self._renderer.calibration_points
                 self.coordinator.set_updated_data()
         except Exception:
-            LOGGER.warn("Map render Failed: %s", traceback.format_exc())
+            LOGGER.warning("Map render Failed: %s", traceback.format_exc())
+            # Fall back to the default placeholder image so a transient
+            # render error doesn't leave the camera entity with a blank
+            # image. The next successful render will overwrite this.
+            self._image = self._renderer.default_map_image
 
     def _get_proxy_image(self, index, map_data, info_text, cache_key, max_item=2):
         item_key = f"i{index}_t{int(info_text)}_d{int(map_data.last_updated)}"
