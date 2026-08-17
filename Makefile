@@ -1,4 +1,3 @@
----
 # Makefile for Dreame Mower Custom Component Development
 
 .PHONY: help test test-unit test-integration start stop restart logs clean format lint install-dev package status
